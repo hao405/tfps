@@ -72,6 +72,7 @@ do
       --des 'Exp' \
       --train_epochs 100 \
       --devices 0,1,2,3,4,5,6,7 \
+      --use_gpu \
       --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
@@ -132,6 +133,7 @@ do
       --des 'Exp' \
       --train_epochs 100 \
       --devices 0,1,2,3,4,5,6,7 \
+      --use_gpu \
       --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
@@ -193,6 +195,7 @@ do
       --des 'Exp' \
       --train_epochs 100 \
       --devices 0,1,2,3,4,5,6,7 \
+      --use_gpu \
       --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
@@ -254,6 +257,7 @@ do
       --des 'Exp' \
       --train_epochs 100 \
       --devices 0,1,2,3,4,5,6,7 \
+      --use_gpu \
       --use_multi_gpu \
       --gpu 0\
       --itr 1 --batch_size 32 --learning_rate $learning_rate | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
