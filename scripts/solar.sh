@@ -70,7 +70,8 @@ do
       --beta 0.1 \
       --des 'Exp' \
       --train_epochs 100 \
-      --gpu 0 \
+      --devices 0,1,2,3,4,5,6,7 \
+      --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate > logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
 done
@@ -101,7 +102,6 @@ do
   MIOPEN_DISABLE_CACHE=1 \
   MIOPEN_SYSTEM_DB_PATH="" \
   HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
-
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
@@ -132,7 +132,8 @@ do
       --beta 0.1 \
       --des 'Exp' \
       --train_epochs 100 \
-      --gpu 0 \
+      --devices 0,1,2,3,4,5,6,7 \
+      --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate > logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
 done
@@ -194,7 +195,8 @@ do
       --beta 0.1 \
       --des 'Exp' \
       --train_epochs 100 \
-      --gpu 0 \
+      --devices 0,1,2,3,4,5,6,7 \
+      --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate > logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
 done
@@ -257,7 +259,8 @@ do
       --beta 0.1 \
       --des 'Exp' \
       --train_epochs 100 \
-      --gpu 0 \
+      --devices 0,1,2,3,4,5,6,7 \
+      --use_multi_gpu \
       --itr 1 --batch_size 32 --learning_rate $learning_rate | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 done
 done
