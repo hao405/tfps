@@ -36,9 +36,9 @@ for F_num_expert in 16
 do
 for F_top_k in 1
 do
-  MIOPEN_DISABLE_CACHE=1 \
-  MIOPEN_SYSTEM_DB_PATH="" \
-  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+    MIOPEN_DISABLE_CACHE=1 \
+    MIOPEN_SYSTEM_DB_PATH="" \
+    HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
 
     python -u ../run_longExp.py \
       --random_seed $random_seed \
@@ -99,9 +99,9 @@ for F_num_expert in 4
 do
 for F_top_k in 1
 do
-  MIOPEN_DISABLE_CACHE=1 \
-  MIOPEN_SYSTEM_DB_PATH="" \
-  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+    MIOPEN_DISABLE_CACHE=1 \
+    MIOPEN_SYSTEM_DB_PATH="" \
+    HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
@@ -161,9 +161,9 @@ for F_num_expert in 4
 do
 for F_top_k in 1
 do
-  MIOPEN_DISABLE_CACHE=1 \
-  MIOPEN_SYSTEM_DB_PATH="" \
-  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+    MIOPEN_DISABLE_CACHE=1 \
+    MIOPEN_SYSTEM_DB_PATH="" \
+    HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
 
     python -u ../run_longExp.py \
       --random_seed $random_seed \
@@ -225,9 +225,9 @@ for F_num_expert in 8
 do
 for F_top_k in 1
 do
-  MIOPEN_DISABLE_CACHE=1 \
-  MIOPEN_SYSTEM_DB_PATH="" \
-  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+    MIOPEN_DISABLE_CACHE=1 \
+    MIOPEN_SYSTEM_DB_PATH="" \
+    HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
 
     python -u ../run_longExp.py \
       --random_seed $random_seed \
