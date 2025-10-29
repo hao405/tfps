@@ -10,9 +10,7 @@ if [ ! -d "./logs/LongForecasting/solar" ]; then
 fi
 # seq_len=96
 model_name=PatchTST_MoE_cluster
-export MIOPEN_DISABLE_CACHE=1
-export MIOPEN_DEBUG_DISABLE_FIND_DB=1
-export HIP_VISIBLE_DEVICES=$GPU
+
 
 root_path_name=../dataset/Solar/
 data_path_name=solar_AL.txt
@@ -38,7 +36,10 @@ for F_num_expert in 16
 do
 for F_top_k in 1
 do
-    HIP_VISIBLE_DEVICES=$GPU \
+  MIOPEN_DISABLE_CACHE=1 \
+  MIOPEN_SYSTEM_DB_PATH="" \
+  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
@@ -97,7 +98,10 @@ for F_num_expert in 4
 do
 for F_top_k in 1
 do
-    HIP_VISIBLE_DEVICES=$GPU \
+  MIOPEN_DISABLE_CACHE=1 \
+  MIOPEN_SYSTEM_DB_PATH="" \
+  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
@@ -156,7 +160,10 @@ for F_num_expert in 4
 do
 for F_top_k in 1
 do
-    HIP_VISIBLE_DEVICES=$GPU \
+  MIOPEN_DISABLE_CACHE=1 \
+  MIOPEN_SYSTEM_DB_PATH="" \
+  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
@@ -216,7 +223,10 @@ for F_num_expert in 8
 do
 for F_top_k in 1
 do
-    HIP_VISIBLE_DEVICES=$GPU \
+  MIOPEN_DISABLE_CACHE=1 \
+  MIOPEN_SYSTEM_DB_PATH="" \
+  HIP_VISIBLE_DEVICES="0,1,2,3,4,5,6,7" \
+
     python -u ../run_longExp.py \
       --random_seed $random_seed \
       --is_training 1 \
