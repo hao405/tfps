@@ -1,6 +1,5 @@
 name: TFPS
 channels:
-  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/pkgs/main
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=main
