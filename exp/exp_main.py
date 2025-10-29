@@ -138,9 +138,7 @@ class Exp_Main(Exp_Basic):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        print(self.model)
         self._get_profile(self.model)
-        print('Trainable parameters: ', sum(p.numel() for p in self.model.parameters() if p.requires_grad))
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
