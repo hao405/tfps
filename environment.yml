@@ -51,8 +51,5 @@ dependencies:
       - termcolor==1.1.0
       - thop==0.1.1-2209072238
       - threadpoolctl==3.1.0
-      - torch==1.9.0+cu111
-      - torchaudio==0.9.0
-      - torchvision==0.10.0+cu111
       - typing-extensions==4.1.1
 prefix: /home/crc00006699/anaconda3/envs/TFPS
