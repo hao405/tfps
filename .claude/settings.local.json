@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod:*)",
+      "Bash(bash -n:*)",
+      "Bash(timeout 30 bash:*)",
+      "Bash(pip install:*)",
+      "Bash(timeout:*)",
+      "Bash(python:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
