@@ -13,7 +13,7 @@ fi
 # seq_len=96
 model_name=PatchTST_MoE_cluster
 
-
+GPU=0,1,2,3,4,5,6,7
 root_path_name=../dataset/Solar/
 data_path_name=solar_AL.txt
 model_id_name=solar
