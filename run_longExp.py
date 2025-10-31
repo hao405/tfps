@@ -115,7 +115,23 @@ if __name__ == '__main__':
     np.random.seed(fix_seed)
 
 
-    args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
+    # Enhanced GPU detection for both AMD and NVIDIA GPUs
+    if args.use_gpu:
+        if torch.version.hip is not None:
+            # AMD ROCm GPU detected
+            print("AMD ROCm GPU detected via PyTorch")
+            args.use_gpu = True
+        elif torch.cuda.is_available():
+            # NVIDIA CUDA GPU detected
+            print("NVIDIA CUDA GPU detected via PyTorch")
+            args.use_gpu = True
+        else:
+            # No GPU detected
+            print("No GPU detected, falling back to CPU")
+            args.use_gpu = False
+    else:
+        print("GPU usage disabled by argument")
+        args.use_gpu = False
 
     if args.use_gpu and args.use_multi_gpu:
         args.dvices = args.devices.replace(' ', '')

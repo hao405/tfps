@@ -15,10 +15,29 @@ class Exp_Basic(object):
 
     def _acquire_device(self):
         if self.args.use_gpu:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(
-                self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
-            device = torch.device('cuda:{}'.format(self.args.gpu))
-            print('Use GPU: cuda:{}'.format(self.args.gpu))
+            # Check for AMD ROCm/HIP support
+            if torch.version.hip is not None:
+                # AMD GPU detected via ROCm
+                print('AMD ROCm GPU detected')
+                if self.args.use_multi_gpu:
+                    # For multi-GPU, set HIP_VISIBLE_DEVICES
+                    os.environ["HIP_VISIBLE_DEVICES"] = self.args.devices
+                    print(f'Use AMD Multi-GPU: {self.args.devices}')
+                    device = torch.device('cuda:0')  # AMD uses cuda:0 interface through ROCm
+                else:
+                    # Single AMD GPU
+                    device = torch.device('cuda:{}'.format(self.args.gpu))
+                    print('Use AMD GPU: cuda:{}'.format(self.args.gpu))
+            elif torch.cuda.is_available():
+                # NVIDIA GPU detected
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(
+                    self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
+                device = torch.device('cuda:{}'.format(self.args.gpu))
+                print('Use NVIDIA GPU: cuda:{}'.format(self.args.gpu))
+            else:
+                # No GPU detected, fallback to CPU
+                device = torch.device('cpu')
+                print('No GPU detected, using CPU')
         else:
             device = torch.device('cpu')
             print('Use CPU')
