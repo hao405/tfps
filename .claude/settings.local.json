@@ -6,7 +6,8 @@
       "Bash(timeout 30 bash:*)",
       "Bash(pip install:*)",
       "Bash(timeout:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []
