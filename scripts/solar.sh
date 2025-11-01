@@ -18,7 +18,9 @@ root_path_name=../dataset/Solar/
 data_path_name=solar_AL.txt
 model_id_name=solar
 data_name=solar
-
+export MIOPEN_DISABLE_CACHE=1
+export MIOPEN_DEBUG_DISABLE_FIND_DB=1
+export HIP_VISIBLE_DEVICES=$GPU
 # random_seed=2023
 
 
