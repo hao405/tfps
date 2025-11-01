@@ -43,15 +43,15 @@ class Exp_Main(Exp_Basic):
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
+        # NOTE: do NOT wrap the model with DataParallel here. Wrapping must happen
+        # after the model is moved to the target device to ensure parameters/buffers
+        # reside on the expected device (cuda:0). The actual DataParallel wrapping
+        # is performed in Exp_Basic.__init__ after .to(self.device).
         if self.args.use_multi_gpu and self.args.use_gpu:
             if torch.version.hip is not None:
-                # AMD multi-GPU setup
-                print('Setting up AMD Multi-GPU with DataParallel')
-                model = nn.DataParallel(model)  # AMD uses automatic device detection
+                print('AMD ROCm detected; multi-GPU requested. DataParallel will be applied after moving model to device.')
             else:
-                # NVIDIA multi-GPU setup
-                print('Setting up NVIDIA Multi-GPU with DataParallel')
-                model = nn.DataParallel(model, device_ids=self.args.device_ids)
+                print('NVIDIA CUDA detected; multi-GPU requested. DataParallel will be applied after moving model to device.')
         return model
 
     def _get_data(self, flag):
