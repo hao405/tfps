@@ -232,6 +232,7 @@ class Exp_Main(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
@@ -251,22 +252,59 @@ class Exp_Main(Exp_Basic):
                         else:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-                # Update refined subspace affinity
-                tmp_s_time = s_time.data
-                s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
-                tmp_s_frequency = s_frequency.data
-                s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
+                # 验证阶段同样需要检查和处理聚类损失
+                if 'Linear' in self.args.model or 'TST' in self.args.model:
+                    # 检查s_time和s_frequency是否有效
+                    if self._check_nan_inf(s_time, f"vali s_time batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_time")
+                        continue
+                    if self._check_nan_inf(s_frequency, f"vali s_frequency batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_frequency")
+                        continue
+                    
+                    # Update refined subspace affinity
+                    tmp_s_time = s_time.data
+                    s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
+                    tmp_s_frequency = s_frequency.data
+                    s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
+                    
+                    # 检查refined affinity
+                    if self._check_nan_inf(s_tilde_time, f"vali s_tilde_time batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_tilde_time")
+                        continue
+                    if self._check_nan_inf(s_tilde_frequency, f"vali s_tilde_frequency batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_tilde_frequency")
+                        continue
 
-                # Total loss function
-                n_z = self.args.c_out * self.args.d_model
-                T_dim = int(n_z / self.args.T_num_expert)
-                F_dim = int(n_z / self.args.F_num_expert)
-                loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                        dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                        beta=self.args.beta)
-                loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                             dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                             beta=self.args.beta)
+                    # Total loss function
+                    n_z = self.args.c_out * self.args.d_model
+                    T_dim = int(n_z / self.args.T_num_expert)
+                    F_dim = int(n_z / self.args.F_num_expert)
+                    
+                    try:
+                        loss_cluster_time = self.model.model_time.cluster.total_loss(
+                            pred=s_time, target=s_tilde_time,
+                            dim=T_dim, n_clusters=self.args.T_num_expert,
+                            beta=self.args.beta)
+                        loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(
+                            pred=s_frequency, target=s_tilde_frequency,
+                            dim=F_dim, n_clusters=self.args.F_num_expert,
+                            beta=self.args.beta)
+                        
+                        # 检查聚类损失
+                        if self._check_nan_inf(loss_cluster_time, f"vali loss_cluster_time batch {i}"):
+                            print(f"Skipping validation batch {i} due to invalid cluster time loss")
+                            continue
+                        if self._check_nan_inf(loss_cluster_frequency, f"vali loss_cluster_frequency batch {i}"):
+                            print(f"Skipping validation batch {i} due to invalid cluster frequency loss")
+                            continue
+                    except Exception as e:
+                        print(f"Error computing cluster losses in validation batch {i}: {e}")
+                        continue
+                else:
+                    # 非MoE模型，设置损失为0
+                    loss_cluster_time = torch.tensor(0.0, device=self.device)
+                    loss_cluster_frequency = torch.tensor(0.0, device=self.device)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -275,13 +313,31 @@ class Exp_Main(Exp_Basic):
                 pred = outputs.detach().cpu()
                 true = batch_y.detach().cpu()
 
-                loss = criterion(pred, true) + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                # 计算总损失
+                loss_fore = criterion(pred, true)
+                
+                # 最终检查
+                if self._check_nan_inf(loss_fore, f"vali loss_fore batch {i}"):
+                    print(f"Skipping validation batch {i} due to invalid forecasting loss")
+                    continue
+                
+                loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                
+                if self._check_nan_inf(loss, f"vali total loss batch {i}"):
+                    print(f"Skipping validation batch {i} due to invalid total loss")
+                    continue
 
                 total_loss.append(loss.item())
+        
+        # 如果所有batch都被跳过，返回一个大的损失值
+        if len(total_loss) == 0:
+            print("Warning: All validation batches were skipped due to NaN/Inf!")
+            return 1e6
+        
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
-
+    
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
