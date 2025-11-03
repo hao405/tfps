@@ -226,6 +226,9 @@ if __name__ == "__main__":
     parser.add_argument('--revin', type=int, default=1)
     parser.add_argument('--affine', type=int, default=0)
     parser.add_argument('--subtract_last', type=int, default=0)
+    parser.add_argument('--decomposition', type=int, default=0)
+    parser.add_argument('--kernel_size', type=int, default=25)
+    parser.add_argument('--padding_patch', type=str, default='end')
     
     args = parser.parse_args()
     

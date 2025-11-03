@@ -1,5 +1,13 @@
 # 解决NaN Loss问题 - 完整指南
 
+## ⚠️ 重要更新: 问题已找到并修复!
+
+**根本原因**: `layers/Cluster.py` 中的参数`D`使用了**未初始化的`torch.Tensor()`**,包含随机垃圾值(可能是NaN/Inf)!
+
+**关键修复**: 已将`torch.Tensor()`替换为正确的正交初始化。详见 `PROBLEM_SOLVED.md`
+
+---
+
 ## 问题诊断
 
 根据您的错误输出:

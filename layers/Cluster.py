@@ -27,7 +27,12 @@ class EDESC(nn.Module):
         # self.D = Parameter(torch.Tensor(n_z, n_clusters))
         n_z = c_out * d_model
         self.d = int(n_z / n_clusters)
-        self.D = Parameter(torch.Tensor(n_clusters * self.d, n_clusters * self.d))
+        
+        # 重要: 使用正确的初始化,而不是未初始化的Tensor
+        # 使用正交初始化,这对于子空间基是合适的
+        D_init = torch.empty(n_clusters * self.d, n_clusters * self.d)
+        nn.init.orthogonal_(D_init)
+        self.D = Parameter(D_init)
 
     def reverse_unfold(self, z, original_length, stride):
         # z: [bs x patch_num x nvars x patch_len]
