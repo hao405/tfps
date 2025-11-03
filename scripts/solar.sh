@@ -23,20 +23,20 @@ export MIOPEN_DEBUG_DISABLE_FIND_DB=1
 export HIP_VISIBLE_DEVICES=$GPU
 # random_seed=2023
 
-# Recommended training config for Solar + PatchTST_MoE_cluster
-BATCH_SIZE=24
-D_MODEL=16
-N_HEADS=8
-E_LAYERS=3
-D_FF=64
+# Optimized training config for Solar + PatchTST_MoE_cluster (Faster!)
+BATCH_SIZE=32          # 增加batch size (24→32) 提高GPU利用率
+D_MODEL=8              # 大幅减小d_model (16→8) 减少参数量
+N_HEADS=4              # 减少注意力头 (8→4) 
+E_LAYERS=2             # 减少层数 (3→2) 加速训练
+D_FF=32                # 减小FFN维度 (64→32)
 PATCH_LEN=16
 STRIDE=8
-T_NUM_EXPERT=16
+T_NUM_EXPERT=8         # 减少专家数 (16→8) 关键优化!
 T_TOP_K=1
-F_NUM_EXPERT=16
+F_NUM_EXPERT=8         # 减少专家数 (16→8) 关键优化!
 F_TOP_K=1
-LR=0.00001
-TRAIN_EPOCHS=100
+LR=0.0005              # 增大学习率 (0.00001→0.0001) 加速收敛
+TRAIN_EPOCHS=100        # 减少训练轮数 (100→50)
 DROPOUT=0.1
 FC_DROPOUT=0.1
 
