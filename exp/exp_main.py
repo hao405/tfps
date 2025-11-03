@@ -275,6 +275,14 @@ class Exp_Main(Exp_Basic):
 
                     loss_fore = criterion(outputs, batch_y)
                     loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                    
+                    # 检查loss是否为NaN
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        print(f"Warning: NaN or Inf loss detected at iteration {i+1}")
+                        print(f"loss_fore: {loss_fore.item()}, loss_cluster_time: {loss_cluster_time.item()}, loss_cluster_frequency: {loss_cluster_frequency.item()}")
+                        print(f"outputs range: [{outputs.min().item()}, {outputs.max().item()}]")
+                        print(f"batch_y range: [{batch_y.min().item()}, {batch_y.max().item()}]")
+                        continue  # 跳过这个batch
 
                     train_loss.append(loss.item())
 
@@ -288,10 +296,15 @@ class Exp_Main(Exp_Basic):
 
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
+                    # 梯度裁剪
+                    scaler.unscale_(model_optim)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     scaler.step(model_optim)
                     scaler.update()
                 else:
                     loss.backward()
+                    # 梯度裁剪,防止梯度爆炸
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     model_optim.step()
                     
                 if self.args.lradj == 'TST':
