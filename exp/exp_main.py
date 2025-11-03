@@ -68,8 +68,6 @@ class Exp_Main(Exp_Basic):
     def _get_profile(self, model):
         _input=torch.randn(self.args.batch_size, self.args.seq_len, self.args.enc_in).to(self.device)
         macs, params = profile(model, inputs=(_input,))
-        print('FLOPs: ', macs)
-        print('params: ', params)
         return macs, params
 
     def _refined_subspace_affinity(self, s):
@@ -144,8 +142,6 @@ class Exp_Main(Exp_Basic):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        print(self.model)
-        self._get_profile(self.model)
         print('Trainable parameters: ', sum(p.numel() for p in self.model.parameters() if p.requires_grad))
 
         path = os.path.join(self.args.checkpoints, setting)
