@@ -30,6 +30,21 @@ class Exp_Main(Exp_Basic):
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
 
+    def _get_model(self):
+        """Get the underlying model, handling DataParallel wrapping"""
+        if isinstance(self.model, nn.DataParallel):
+            return self.model.module
+        return self.model
+
+    def _get_model_attribute(self, attr_path):
+        """Safely get nested model attributes, handling DataParallel wrapping"""
+        base_model = self._get_model()
+        attrs = attr_path.split('.')
+        current = base_model
+        for attr in attrs:
+            current = getattr(current, attr)
+        return current
+
     def _build_model(self):
         model_dict = {
             'Autoformer': Autoformer,
@@ -44,10 +59,39 @@ class Exp_Main(Exp_Basic):
         model = model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
-            # Move model to the primary device before DataParallel wrapping
-            primary_device = torch.device(f'cuda:{self.args.device_ids[0]}')
-            model = model.to(primary_device)
-            model = nn.DataParallel(model, device_ids=self.args.device_ids)
+            # Detect AMD GPU environment (ROCm/HIP)
+            is_amd_gpu = hasattr(torch.version, 'hip') and torch.version.hip is not None
+
+            # Validate device availability
+            available_devices = torch.cuda.device_count()
+            if available_devices == 0:
+                raise RuntimeError("No GPUs available. Please check your GPU setup.")
+
+            # Validate requested device IDs
+            for device_id in self.args.device_ids:
+                if device_id >= available_devices:
+                    raise RuntimeError(f"Requested GPU {device_id} not available. Only {available_devices} GPUs detected.")
+
+            if is_amd_gpu:
+                # For AMD GPUs using ROCm/HIP - PyTorch still uses 'cuda:' device naming
+                print(f'Using AMD GPUs with ROCm/HIP, device IDs: {self.args.device_ids}')
+                print(f'ROCm version: {torch.version.hip}')
+                print(f'Available AMD GPUs: {available_devices}')
+                primary_device = torch.device(f'cuda:{self.args.device_ids[0]}')
+                model = model.to(primary_device)
+                # Use DataParallel with AMD GPU device IDs
+                model = nn.DataParallel(model, device_ids=self.args.device_ids)
+                print(f'Model successfully wrapped with DataParallel on AMD GPUs: {self.args.device_ids}')
+            else:
+                # For NVIDIA GPUs using CUDA
+                print(f'Using NVIDIA GPUs with CUDA, device IDs: {self.args.device_ids}')
+                if hasattr(torch.version, 'cuda'):
+                    print(f'CUDA version: {torch.version.cuda}')
+                print(f'Available NVIDIA GPUs: {available_devices}')
+                primary_device = torch.device(f'cuda:{self.args.device_ids[0]}')
+                model = model.to(primary_device)
+                model = nn.DataParallel(model, device_ids=self.args.device_ids)
+                print(f'Model successfully wrapped with DataParallel on NVIDIA GPUs: {self.args.device_ids}')
         elif self.args.use_gpu:
             # Single GPU case - move to device
             model = model.to(self.device)
@@ -117,12 +161,12 @@ class Exp_Main(Exp_Basic):
                 n_z = self.args.c_out * self.args.d_model
                 T_dim = int(n_z / self.args.T_num_expert)
                 F_dim = int(n_z / self.args.F_num_expert)
-                loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                        dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                        beta=self.args.beta)
-                loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                             dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                             beta=self.args.beta)
+
+                # Get cluster loss using safe attribute access
+                loss_cluster_time = self._get_model_attribute('model_time.cluster.total_loss')(
+                    pred=s_time, target=s_tilde_time, dim=T_dim, n_clusters=self.args.T_num_expert, beta=self.args.beta)
+                loss_cluster_frequency = self._get_model_attribute('model_frequency.cluster.total_loss')(
+                    pred=s_frequency, target=s_tilde_frequency, dim=F_dim, n_clusters=self.args.F_num_expert, beta=self.args.beta)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -219,12 +263,12 @@ class Exp_Main(Exp_Basic):
                     n_z = self.args.c_out * self.args.d_model
                     T_dim = int(n_z / self.args.T_num_expert)
                     F_dim = int(n_z / self.args.F_num_expert)
-                    loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                       dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                       beta=self.args.beta)
-                    loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                       dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                       beta=self.args.beta)
+
+                    # Get cluster loss using safe attribute access
+                    loss_cluster_time = self._get_model_attribute('model_time.cluster.total_loss')(
+                        pred=s_time, target=s_tilde_time, dim=T_dim, n_clusters=self.args.T_num_expert, beta=self.args.beta)
+                    loss_cluster_frequency = self._get_model_attribute('model_frequency.cluster.total_loss')(
+                        pred=s_frequency, target=s_tilde_frequency, dim=F_dim, n_clusters=self.args.F_num_expert, beta=self.args.beta)
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)

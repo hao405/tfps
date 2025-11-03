@@ -16,10 +16,21 @@ class Exp_Basic(object):
 
     def _acquire_device(self):
         if self.args.use_gpu:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(
-                self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
-            device = torch.device('cuda:{}'.format(self.args.gpu))
-            print('Use GPU: cuda:{}'.format(self.args.gpu))
+            # Detect AMD GPU environment (ROCm/HIP)
+            is_amd_gpu = hasattr(torch.version, 'hip') and torch.version.hip is not None
+
+            if is_amd_gpu:
+                # For AMD GPUs using ROCm/HIP - PyTorch still uses 'cuda:' device naming
+                os.environ["HIP_VISIBLE_DEVICES"] = str(
+                    self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
+                device = torch.device('cuda:{}'.format(self.args.gpu))
+                print('Use AMD GPU with ROCm/HIP: cuda:{}'.format(self.args.gpu))
+            else:
+                # For NVIDIA GPUs using CUDA
+                os.environ["CUDA_VISIBLE_DEVICES"] = str(
+                    self.args.gpu) if not self.args.use_multi_gpu else self.args.devices
+                device = torch.device('cuda:{}'.format(self.args.gpu))
+                print('Use NVIDIA GPU with CUDA: cuda:{}'.format(self.args.gpu))
         else:
             device = torch.device('cpu')
             print('Use CPU')
