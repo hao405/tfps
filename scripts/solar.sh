@@ -35,7 +35,7 @@ T_NUM_EXPERT=16
 T_TOP_K=1
 F_NUM_EXPERT=16
 F_TOP_K=1
-LR=0.0005
+LR=0.00001
 TRAIN_EPOCHS=100
 DROPOUT=0.1
 FC_DROPOUT=0.1
@@ -86,7 +86,7 @@ do
       --T_top_k $T_top_k \
       --F_num_expert $F_num_expert \
       --F_top_k $F_top_k \
-      --beta 0.1 \
+      --beta 0.01 \
       --des 'Exp' \
       --train_epochs ${TRAIN_EPOCHS} \
       --devices 0,1,2,3,4,5,6,7 \

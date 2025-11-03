@@ -7,7 +7,11 @@
       "Bash(pip install:*)",
       "Bash(timeout:*)",
       "Bash(python:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git restore:*)",
+      "Bash(./test_amd_gpu_setup.sh:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(lspci:*)"
     ],
     "deny": [],
     "ask": []

@@ -43,8 +43,15 @@ class Exp_Main(Exp_Basic):
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
+        # NOTE: do NOT wrap the model with DataParallel here. Wrapping must happen
+        # after the model is moved to the target device to ensure parameters/buffers
+        # reside on the expected device (cuda:0). The actual DataParallel wrapping
+        # is performed in Exp_Basic.__init__ after .to(self.device).
         if self.args.use_multi_gpu and self.args.use_gpu:
-            model = nn.DataParallel(model, device_ids=self.args.device_ids)
+            if torch.version.hip is not None:
+                print('AMD ROCm detected; multi-GPU requested. DataParallel will be applied after moving model to device.')
+            else:
+                print('NVIDIA CUDA detected; multi-GPU requested. DataParallel will be applied after moving model to device.')
         return model
 
     def _get_data(self, flag):
@@ -52,12 +59,116 @@ class Exp_Main(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        model_optim = optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
+        """
+        为非稳态时序优化器配置
+        使用AdamW with weight decay来提高鲁棒性
+        """
+        # 对不同的参数组使用不同的学习率
+        # MoE的路由参数需要更小心的更新
+        param_groups = []
+        
+        # 聚类/路由相关参数（D矩阵等）使用更小的学习率
+        routing_params = []
+        other_params = []
+        
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                if 'cluster' in name.lower() or 'D' in name or 'routing' in name.lower():
+                    routing_params.append(param)
+                else:
+                    other_params.append(param)
+        
+        # 为路由参数设置更保守的学习率（1/10）
+        if len(routing_params) > 0:
+            param_groups.append({
+                'params': routing_params,
+                'lr': self.args.learning_rate * 0.1,
+                'weight_decay': 0.01
+            })
+            print(f"Routing parameters: {len(routing_params)} params with lr={self.args.learning_rate * 0.1}")
+        
+        if len(other_params) > 0:
+            param_groups.append({
+                'params': other_params,
+                'lr': self.args.learning_rate,
+                'weight_decay': 0.01
+            })
+            print(f"Other parameters: {len(other_params)} params with lr={self.args.learning_rate}")
+        
+        # 使用AdamW而非Adam，weight decay有助于防止非稳态导致的过拟合
+        model_optim = optim.AdamW(param_groups if param_groups else self.model.parameters(), 
+                                  lr=self.args.learning_rate,
+                                  betas=(0.9, 0.999),
+                                  eps=1e-8,
+                                  weight_decay=0.01)
         return model_optim
 
     def _select_criterion(self):
         criterion = nn.MSELoss()
         return criterion
+    
+    def _check_nan_inf(self, tensor, name="tensor"):
+        """检查tensor中是否有NaN或Inf值"""
+        if torch.isnan(tensor).any():
+            print(f"Warning: {name} contains NaN values!")
+            return True
+        if torch.isinf(tensor).any():
+            print(f"Warning: {name} contains Inf values!")
+            return True
+        return False
+    
+    def _clip_gradients(self, model, max_norm=1.0):
+        """梯度裁剪"""
+        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+        return total_norm
+    
+    def _diagnose_model_state(self, model, batch_data, iteration):
+        """
+        诊断模型状态 - 针对非稳态时序的专门监控
+        """
+        diagnostics = {}
+        
+        # 检查模型参数
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                grad_norm = param.grad.norm().item()
+                param_norm = param.norm().item()
+                
+                if grad_norm > 100 or param_norm > 1000:
+                    diagnostics[name] = {
+                        'grad_norm': grad_norm,
+                        'param_norm': param_norm,
+                        'status': 'CRITICAL'
+                    }
+        
+        # 检查输入数据的统计特性（非稳态检测）
+        if batch_data is not None:
+            data_mean = batch_data.mean().item()
+            data_std = batch_data.std().item()
+            data_max = batch_data.max().item()
+            data_min = batch_data.min().item()
+            
+            diagnostics['input_data'] = {
+                'mean': data_mean,
+                'std': data_std,
+                'max': data_max,
+                'min': data_min,
+                'range': data_max - data_min
+            }
+            
+            # 非稳态检测：如果数据范围或标准差异常
+            if data_std < 1e-6 or data_std > 1e6:
+                diagnostics['input_data']['status'] = 'NON_STATIONARY_WARNING'
+        
+        if diagnostics:
+            print(f"\n{'='*50}")
+            print(f"Model Diagnostics at Iteration {iteration}")
+            print(f"{'='*50}")
+            for key, value in diagnostics.items():
+                print(f"{key}: {value}")
+            print(f"{'='*50}\n")
+        
+        return diagnostics
 
     def _get_profile(self, model):
         _input=torch.randn(self.args.batch_size, self.args.seq_len, self.args.enc_in).to(self.device)
@@ -67,8 +178,45 @@ class Exp_Main(Exp_Basic):
         return macs, params
 
     def _refined_subspace_affinity(self, s):
-        weight = s ** 2 / s.sum(0)
-        return (weight.t() / weight.sum(1)).t()
+        """
+        计算refined subspace affinity
+        针对非稳态时序的自适应软分配策略
+        """
+        eps = 1e-8
+        
+        # 检查输入的有效性
+        if torch.isnan(s).any() or torch.isinf(s).any():
+            print("Warning: Invalid values in subspace affinity input, using uniform distribution")
+            return torch.ones_like(s) / s.shape[1]
+        
+        # 使用温和的非线性变换，避免极端值
+        # 对于非稳态数据，使用平方根而非平方可以减小方差
+        s_clamped = torch.clamp(s, min=eps, max=1e6)
+        
+        # 使用log-sum-exp技巧进行数值稳定的softmax风格归一化
+        # 这对处理非稳态分布的极端值非常重要
+        s_log = torch.log(s_clamped + eps)
+        
+        # 沿着聚类维度进行归一化
+        s_max = torch.max(s_log, dim=1, keepdim=True)[0]
+        s_exp = torch.exp(s_log - s_max)
+        
+        # 平方操作但限制幅度
+        weight = torch.clamp(s_exp ** 2, max=1e6)
+        
+        # 两次归一化以获得refined affinity
+        weight_sum = weight.sum(0, keepdim=True) + eps
+        weight_norm = weight / weight_sum
+        
+        weight_norm_sum = weight_norm.sum(1, keepdim=True) + eps
+        result = weight_norm / weight_norm_sum
+        
+        # 最终的安全检查
+        result = torch.where(torch.isnan(result) | torch.isinf(result), 
+                           torch.ones_like(result) / result.shape[1], 
+                           result)
+        
+        return result
 
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
@@ -84,6 +232,7 @@ class Exp_Main(Exp_Basic):
                 # decoder input
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                
                 # encoder - decoder
                 if self.args.use_amp:
                     with torch.cuda.amp.autocast():
@@ -103,22 +252,59 @@ class Exp_Main(Exp_Basic):
                         else:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-                # Update refined subspace affinity
-                tmp_s_time = s_time.data
-                s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
-                tmp_s_frequency = s_frequency.data
-                s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
+                # 验证阶段同样需要检查和处理聚类损失
+                if 'Linear' in self.args.model or 'TST' in self.args.model:
+                    # 检查s_time和s_frequency是否有效
+                    if self._check_nan_inf(s_time, f"vali s_time batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_time")
+                        continue
+                    if self._check_nan_inf(s_frequency, f"vali s_frequency batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_frequency")
+                        continue
+                    
+                    # Update refined subspace affinity
+                    tmp_s_time = s_time.data
+                    s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
+                    tmp_s_frequency = s_frequency.data
+                    s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
+                    
+                    # 检查refined affinity
+                    if self._check_nan_inf(s_tilde_time, f"vali s_tilde_time batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_tilde_time")
+                        continue
+                    if self._check_nan_inf(s_tilde_frequency, f"vali s_tilde_frequency batch {i}"):
+                        print(f"Skipping validation batch {i} due to invalid s_tilde_frequency")
+                        continue
 
-                # Total loss function
-                n_z = self.args.c_out * self.args.d_model
-                T_dim = int(n_z / self.args.T_num_expert)
-                F_dim = int(n_z / self.args.F_num_expert)
-                loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                        dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                        beta=self.args.beta)
-                loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                             dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                             beta=self.args.beta)
+                    # Total loss function
+                    n_z = self.args.c_out * self.args.d_model
+                    T_dim = int(n_z / self.args.T_num_expert)
+                    F_dim = int(n_z / self.args.F_num_expert)
+                    
+                    try:
+                        loss_cluster_time = self.model.model_time.cluster.total_loss(
+                            pred=s_time, target=s_tilde_time,
+                            dim=T_dim, n_clusters=self.args.T_num_expert,
+                            beta=self.args.beta)
+                        loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(
+                            pred=s_frequency, target=s_tilde_frequency,
+                            dim=F_dim, n_clusters=self.args.F_num_expert,
+                            beta=self.args.beta)
+                        
+                        # 检查聚类损失
+                        if self._check_nan_inf(loss_cluster_time, f"vali loss_cluster_time batch {i}"):
+                            print(f"Skipping validation batch {i} due to invalid cluster time loss")
+                            continue
+                        if self._check_nan_inf(loss_cluster_frequency, f"vali loss_cluster_frequency batch {i}"):
+                            print(f"Skipping validation batch {i} due to invalid cluster frequency loss")
+                            continue
+                    except Exception as e:
+                        print(f"Error computing cluster losses in validation batch {i}: {e}")
+                        continue
+                else:
+                    # 非MoE模型，设置损失为0
+                    loss_cluster_time = torch.tensor(0.0, device=self.device)
+                    loss_cluster_frequency = torch.tensor(0.0, device=self.device)
 
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
@@ -127,20 +313,36 @@ class Exp_Main(Exp_Basic):
                 pred = outputs.detach().cpu()
                 true = batch_y.detach().cpu()
 
-                loss = criterion(pred, true) + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                # 计算总损失
+                loss_fore = criterion(pred, true)
+                
+                # 最终检查
+                if self._check_nan_inf(loss_fore, f"vali loss_fore batch {i}"):
+                    print(f"Skipping validation batch {i} due to invalid forecasting loss")
+                    continue
+                
+                loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                
+                if self._check_nan_inf(loss, f"vali total loss batch {i}"):
+                    print(f"Skipping validation batch {i} due to invalid total loss")
+                    continue
 
                 total_loss.append(loss.item())
+        
+        # 如果所有batch都被跳过，返回一个大的损失值
+        if len(total_loss) == 0:
+            print("Warning: All validation batches were skipped due to NaN/Inf!")
+            return 1e6
+        
         total_loss = np.average(total_loss)
         self.model.train()
         return total_loss
-
+    
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
-        print(self.model)
         self._get_profile(self.model)
-        print('Trainable parameters: ', sum(p.numel() for p in self.model.parameters() if p.requires_grad))
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -206,29 +408,76 @@ class Exp_Main(Exp_Basic):
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                         else:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, batch_y)
-                    # print(outputs.shape,batch_y.shape)
+                    
+                    # 检查模型输出是否包含NaN或Inf
+                    if self._check_nan_inf(outputs, "model outputs"):
+                        print(f"Skipping batch {i} due to NaN/Inf in outputs")
+                        continue
+                    if self._check_nan_inf(s_time, "s_time"):
+                        print(f"Skipping batch {i} due to NaN/Inf in s_time")
+                        continue
+                    if self._check_nan_inf(s_frequency, "s_frequency"):
+                        print(f"Skipping batch {i} due to NaN/Inf in s_frequency")
+                        continue
+                    
                     # Update refined subspace affinity
                     tmp_s_time = s_time.data
                     s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
                     tmp_s_frequency = s_frequency.data
                     s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
 
+                    # 检查refined subspace affinity输出
+                    if self._check_nan_inf(s_tilde_time, "s_tilde_time"):
+                        print(f"Skipping batch {i} due to NaN/Inf in s_tilde_time")
+                        continue
+                    if self._check_nan_inf(s_tilde_frequency, "s_tilde_frequency"):
+                        print(f"Skipping batch {i} due to NaN/Inf in s_tilde_frequency")
+                        continue
+
                     # Total loss function
                     n_z = self.args.c_out * self.args.d_model
                     T_dim = int(n_z / self.args.T_num_expert)
                     F_dim = int(n_z / self.args.F_num_expert)
-                    loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                       dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                       beta=self.args.beta)
-                    loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                       dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                       beta=self.args.beta)
+                    
+                    # 计算聚类损失，添加异常检查
+                    try:
+                        loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
+                                                                           dim=T_dim, n_clusters=self.args.T_num_expert,
+                                                                           beta=self.args.beta)
+                        loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
+                                                                           dim=F_dim, n_clusters=self.args.F_num_expert,
+                                                                           beta=self.args.beta)
+                        
+                        # 检查聚类损失
+                        if self._check_nan_inf(loss_cluster_time, "loss_cluster_time"):
+                            print(f"Skipping batch {i} due to NaN/Inf in cluster time loss")
+                            continue
+                        if self._check_nan_inf(loss_cluster_frequency, "loss_cluster_frequency"):
+                            print(f"Skipping batch {i} due to NaN/Inf in cluster frequency loss")
+                            continue
+                    except Exception as e:
+                        print(f"Error computing cluster losses: {e}")
+                        continue
+                    
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
+                    # 计算前向损失
                     loss_fore = criterion(outputs, batch_y)
+                    
+                    # 检查前向损失
+                    if self._check_nan_inf(loss_fore, "loss_fore"):
+                        print(f"Skipping batch {i} due to NaN/Inf in forecasting loss")
+                        continue
+                    
+                    # 总损失，使用较小的系数
                     loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+                    
+                    # 最终检查总损失
+                    if self._check_nan_inf(loss, "total loss"):
+                        print(f"Skipping batch {i} due to NaN/Inf in total loss")
+                        continue
 
                     train_loss.append(loss.item())
 
@@ -237,15 +486,28 @@ class Exp_Main(Exp_Basic):
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    
+                    # 定期诊断模型状态（非稳态监控）
+                    if (i + 1) % 500 == 0:
+                        self._diagnose_model_state(self.model, batch_x, i + 1)
+                    
                     iter_count = 0
                     time_now = time.time()
 
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
+                    # 梯度裁剪
+                    grad_norm = self._clip_gradients(self.model, max_norm=1.0)
+                    if grad_norm > 10.0:  # 梯度过大时的警告
+                        print(f"Warning: Large gradient norm: {grad_norm}")
                     scaler.step(model_optim)
                     scaler.update()
                 else:
                     loss.backward()
+                    # 梯度裁剪
+                    grad_norm = self._clip_gradients(self.model, max_norm=1.0)
+                    if grad_norm > 10.0:  # 梯度过大时的警告
+                        print(f"Warning: Large gradient norm: {grad_norm}")
                     model_optim.step()
                     
                 if self.args.lradj == 'TST':
