@@ -431,6 +431,17 @@ class Dataset_Solar(Dataset):
         df_raw = np.stack(df_raw, 0)
         df_raw = pd.DataFrame(df_raw)
 
+        # 检查并处理NaN和Inf值
+        if df_raw.isnull().any().any():
+            print("Warning: Dataset contains NaN values. Filling with forward fill method.")
+            df_raw = df_raw.fillna(method='ffill').fillna(method='bfill')
+        
+        # 替换Inf值
+        df_raw = df_raw.replace([np.inf, -np.inf], np.nan)
+        if df_raw.isnull().any().any():
+            print("Warning: Dataset contains Inf values. Filling with column mean.")
+            df_raw = df_raw.fillna(df_raw.mean())
+
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
         num_valid = int(len(df_raw) * 0.1)
@@ -445,11 +456,18 @@ class Dataset_Solar(Dataset):
             train_data = df_data[border1s[0]:border2s[0]]
             self.scaler.fit(train_data)
             data = self.scaler.transform(df_data)
+            
+            # 再次检查标准化后的数据
+            if np.isnan(data).any() or np.isinf(data).any():
+                print("Warning: Scaled data contains NaN or Inf. Clipping values.")
+                data = np.nan_to_num(data, nan=0.0, posinf=3.0, neginf=-3.0)
         else:
             data = df_data
 
         self.data_x = data[border1:border2]
         self.data_y = data[border1:border2]
+        
+        print(f"Data shape: {self.data_x.shape}, Data range: [{self.data_x.min():.4f}, {self.data_x.max():.4f}]")
 
     def __getitem__(self, index):
         s_begin = index
