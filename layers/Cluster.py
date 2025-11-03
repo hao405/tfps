@@ -57,38 +57,16 @@ class EDESC(nn.Module):
         # x_bar = self.reverse_unfold(x_bar, length, self.stride)    # x_bar: [bs, c_out, context_window]
         s = None
         
-        # 关键修复：对输入进行L2归一化，防止非稳态数据的幅值爆炸
-        # 这对于MoE的路由决策至关重要
-        z_norm = F.normalize(z, p=2, dim=1, eps=1e-8)
-        
         # Calculate subspace affinity
         for i in range(self.n_clusters):
-            # 使用归一化后的特征计算亲和度
-            # 避免平方运算导致的数值爆炸
-            D_i = self.D[:, i * self.d:(i + 1) * self.d]
-            
-            # 对子空间基也进行归一化
-            D_i_norm = F.normalize(D_i, p=2, dim=0, eps=1e-8)
-            
-            # 计算余弦相似度而非欧氏距离的平方
-            # 这在非稳态场景下更鲁棒
-            similarity = torch.mm(z_norm, D_i_norm)
-            si = torch.sum(torch.pow(similarity, 2), 1, keepdim=True)
-            
-            # 使用温度缩放控制分布的锐度
-            temperature = 0.1
-            si = si / temperature
-            
+
+            si = torch.sum(torch.pow(torch.mm(z, self.D[:, i * self.d:(i + 1) * self.d]), 2), 1, keepdim=True)
             if s is None:
                 s = si
             else:
                 s = torch.cat((s, si), 1)
-        
-        # 使用softmax代替手动归一化，更加数值稳定
-        # 添加eta项作为正则化
-        s = s + self.eta * self.d
-        s = F.softmax(s, dim=1)  # 自动处理数值稳定性
-        
+        s = (s + self.eta * self.d) / ((self.eta + 1) * self.d)
+        s = (s.t() / torch.sum(s, 1)).t()  # Eq 13  [b_s, num_expert]
         return s, z
 
     def total_loss(self, pred, target, dim, n_clusters, beta): # x, x_bar,
@@ -96,28 +74,7 @@ class EDESC(nn.Module):
         # reconstr_loss = F.mse_loss(x_bar, x)
 
         # Subspace clustering loss  Eq 15
-        # 关键修复：使用对数空间的数值稳定版本KL散度
-        # 避免在非稳态时序中出现极端概率值导致的NaN
-        eps = 1e-8
-        
-        # 确保pred和target都是有效的概率分布
-        pred = torch.clamp(pred, min=eps, max=1.0)
-        target = torch.clamp(target, min=eps, max=1.0)
-        
-        # 重新归一化，确保和为1
-        pred = pred / (pred.sum(dim=1, keepdim=True) + eps)
-        target = target / (target.sum(dim=1, keepdim=True) + eps)
-        
-        # 使用数值稳定的KL散度计算
-        # KL(P||Q) = sum(P * log(P/Q)) = sum(P * (log(P) - log(Q)))
-        log_pred = torch.log(pred + eps)
-        log_target = torch.log(target + eps)
-        
-        # 使用log_softmax风格的稳定计算
-        kl_loss = F.kl_div(log_pred, target, reduction='batchmean')
-        
-        # 添加KL散度的上界约束，防止非稳态导致的极端值
-        kl_loss = torch.clamp(kl_loss, max=10.0)
+        kl_loss = F.kl_div(pred.log(), target)
 
         # Constraints   Eq 12
         d_cons1 = D_constraint1()
@@ -126,7 +83,6 @@ class EDESC(nn.Module):
         loss_d2 = d_cons2(self.D, dim, n_clusters)
 
         # Total_loss    Eq 16
-        # 调整beta系数，避免聚类损失主导导致的不稳定
         total_loss = beta * kl_loss + loss_d1 + loss_d2  # reconstr_loss +
 
         return total_loss

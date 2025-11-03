@@ -91,7 +91,7 @@ if __name__ == '__main__':
     parser.add_argument('--itr', type=int, default=2, help='experiments times')
     parser.add_argument('--train_epochs', type=int, default=100, help='train epochs')
     parser.add_argument('--batch_size', type=int, default=128, help='batch size of train input data')
-    parser.add_argument('--patience', type=int, default=15, help='early stopping patience')
+    parser.add_argument('--patience', type=int, default=20, help='early stopping patience')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
     parser.add_argument('--des', type=str, default='test', help='exp description')
     parser.add_argument('--loss', type=str, default='mse', help='loss function')
@@ -101,25 +101,12 @@ if __name__ == '__main__':
 
     # GPU
     parser.add_argument('--use_gpu', type=bool, default=True, help='use gpu')
-    parser.add_argument('--gpu', type=int, default=1, help='gpu')
+    parser.add_argument('--gpu', type=int, default=7, help='gpu')
     parser.add_argument('--use_multi_gpu', action='store_true', help='use multiple gpus', default=False)
     parser.add_argument('--devices', type=str, default='0,1,2,3', help='device ids of multile gpus')
     parser.add_argument('--test_flop', action='store_true', default=False, help='See utils/tools for usage')
 
     args = parser.parse_args()
-
-    # helper: robustly convert various truthy/falsey CLI values to bool
-    def str2bool(v):
-        if isinstance(v, bool):
-            return v
-        if v is None:
-            return False
-        if isinstance(v, str):
-            return v.lower() in ('true', '1', 't', 'yes', 'y')
-        return bool(v)
-
-    # normalize use_gpu (scripts may pass strings like "True"/"False")
-    args.use_gpu = str2bool(args.use_gpu)
 
     # random seed
     fix_seed = args.random_seed
@@ -128,56 +115,13 @@ if __name__ == '__main__':
     np.random.seed(fix_seed)
 
 
-    # Enhanced GPU detection for both AMD (ROCm) and NVIDIA (CUDA)
-    # First probe PyTorch features, then ensure at least one visible device exists
-    hip_available = getattr(torch.version, 'hip', None) is not None
-    cuda_available = torch.cuda.is_available()
-    # device_count can only be called if torch.cuda.is_available() is True
-    device_count = torch.cuda.device_count() if cuda_available else 0
+    args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
 
-    # If HIP_VISIBLE_DEVICES env is set to an explicit false-like value, treat as not set
-    hip_visible = os.environ.get('HIP_VISIBLE_DEVICES')
-    if isinstance(hip_visible, str) and hip_visible.strip().lower() in ('false', 'none'):
-        hip_visible = None
-
-    # Decide final args.use_gpu based on availability and user intent
-    if args.use_gpu:
-        if hip_available and device_count > 0:
-            print(f"AMD ROCm GPU detected via PyTorch (devices: {device_count})")
-            args.use_gpu = True
-        elif hip_available and device_count == 0:
-            print("PyTorch built with ROCm support, but no HIP devices are visible (torch.cuda.device_count()==0).")
-            print("Possible causes: ROCm drivers not loaded, HIP_VISIBLE_DEVICES mis-set, or running inside a container without device access.")
-            args.use_gpu = False
-        elif cuda_available and device_count > 0:
-            print(f"NVIDIA CUDA GPU detected via PyTorch (devices: {device_count})")
-            args.use_gpu = True
-        else:
-            print("No GPU detected, falling back to CPU")
-            args.use_gpu = False
-    else:
-        print("GPU usage disabled by argument")
-        args.use_gpu = False
-
-    # Parse multi-GPU device list only when GPU is actually used
     if args.use_gpu and args.use_multi_gpu:
-        # sanitize devices string and build integer ids list, ignore invalid entries
-        devices_str = (args.devices or '').replace(' ', '')
-        device_ids = []
-        for tok in devices_str.split(','):
-            if tok == '':
-                continue
-            try:
-                device_ids.append(int(tok))
-            except Exception:
-                # ignore non-integer tokens (robust to malformed envs or stray prints)
-                continue
-        if len(device_ids) == 0:
-            print("Warning: --use_multi_gpu specified but no valid device ids parsed from --devices. Falling back to single GPU mode.")
-            args.use_multi_gpu = False
-        else:
-            args.device_ids = device_ids
-            args.gpu = args.device_ids[0]
+        args.dvices = args.devices.replace(' ', '')
+        device_ids = args.devices.split(',')
+        args.device_ids = [int(id_) for id_ in device_ids]
+        args.gpu = args.device_ids[0]
 
     print('Args in experiment:')
     print(args)
@@ -253,3 +197,4 @@ if __name__ == '__main__':
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
         exp.test(setting, test=1)
         torch.cuda.empty_cache()
+        
