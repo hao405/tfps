@@ -24,8 +24,8 @@ export HIP_VISIBLE_DEVICES=$GPU
 # random_seed=2023
 
 # Recommended training config for Solar + PatchTST_MoE_cluster
-BATCH_SIZE=32
-D_MODEL=16
+BATCH_SIZE=24
+D_MODEL=8
 N_HEADS=8
 E_LAYERS=3
 D_FF=64
