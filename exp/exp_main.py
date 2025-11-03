@@ -159,12 +159,9 @@ class Exp_Main(Exp_Basic):
         model_optim = self._select_optimizer()
         criterion = self._select_criterion()
 
-        # gradient clipping norm
-        max_grad_norm = getattr(self.args, 'max_grad_norm', 1.0)
-
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
-
+            
         scheduler = lr_scheduler.OneCycleLR(optimizer = model_optim,
                                             steps_per_epoch = train_steps,
                                             pct_start = self.args.pct_start,
@@ -191,88 +188,54 @@ class Exp_Main(Exp_Basic):
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
                 # encoder - decoder
-                try:
-                    if self.args.use_amp:
-                        with torch.cuda.amp.autocast():
-                            if 'Linear' in self.args.model or 'TST' in self.args.model:
-                                outputs = self.model(batch_x)
-                            else:
-                                if self.args.output_attention:
-                                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
-                                else:
-                                    outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
-
-                            f_dim = -1 if self.args.features == 'MS' else 0
-                            outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                            batch_y_part = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-                            loss = criterion(outputs, batch_y_part)
-                            train_loss.append(loss.item())
-
-                        # AMP backward and step with gradient clipping
-                        if not torch.isfinite(loss):
-                            print(f"Found non-finite loss (AMP) at epoch {epoch} step {i}. Skipping this batch.")
-                            print('batch_x stats:', torch.isnan(batch_x).any(), torch.isinf(batch_x).any(), batch_x.mean().item(), batch_x.std().item())
-                            continue
-
-                        scaler.scale(loss).backward()
-                        # unscale before clipping
-                        scaler.unscale_(model_optim)
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                        scaler.step(model_optim)
-                        scaler.update()
-
-                    else:
+                if self.args.use_amp:
+                    with torch.cuda.amp.autocast():
                         if 'Linear' in self.args.model or 'TST' in self.args.model:
-                            s_time, s_frequency, outputs = self.model(batch_x)
+                            outputs = self.model(batch_x)
                         else:
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                             else:
-                                outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, batch_y)
+                                outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
-                        # Update refined subspace affinity
-                        tmp_s_time = s_time.data
-                        s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
-                        tmp_s_frequency = s_frequency.data
-                        s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
-
-                        # Total loss function
-                        n_z = self.args.c_out * self.args.d_model
-                        T_dim = int(n_z / self.args.T_num_expert)
-                        F_dim = int(n_z / self.args.F_num_expert)
-                        loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
-                                                                           dim=T_dim, n_clusters=self.args.T_num_expert,
-                                                                           beta=self.args.beta)
-                        loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
-                                                                           dim=F_dim, n_clusters=self.args.F_num_expert,
-                                                                           beta=self.args.beta)
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                        batch_y_part = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
-
-                        loss_fore = criterion(outputs, batch_y_part)
-                        loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
-
-                        # NaN/Inf checks before backward
-                        if not torch.isfinite(loss):
-                            print(f"Found non-finite loss at epoch {epoch} step {i}. Skipping this batch and dumping diagnostics.")
-                            print('loss_fore:', loss_fore.item() if torch.isfinite(loss_fore) else loss_fore)
-                            print('loss_cluster_time:', float(loss_cluster_time.detach().cpu().numpy()))
-                            print('loss_cluster_frequency:', float(loss_cluster_frequency.detach().cpu().numpy()))
-                            print('outputs stats:', torch.isnan(outputs).any().item(), torch.isinf(outputs).any().item(), outputs.min().item(), outputs.max().item())
-                            print('batch_y_part stats:', torch.isnan(batch_y_part).any().item(), torch.isinf(batch_y_part).any().item(), batch_y_part.min().item(), batch_y_part.max().item())
-                            continue
-
-                        loss.backward()
-                        # gradient clipping
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-                        model_optim.step()
-
+                        batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                        loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
+                else:
+                    if 'Linear' in self.args.model or 'TST' in self.args.model:
+                            s_time, s_frequency, outputs = self.model(batch_x)
+                    else:
+                        if self.args.output_attention:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark, batch_y)
+                    # print(outputs.shape,batch_y.shape)
+                    # Update refined subspace affinity
+                    tmp_s_time = s_time.data
+                    s_tilde_time = self._refined_subspace_affinity(s=tmp_s_time)
+                    tmp_s_frequency = s_frequency.data
+                    s_tilde_frequency = self._refined_subspace_affinity(s=tmp_s_frequency)
 
-                except Exception as e:
-                    print(f"Exception during forward/backward at epoch {epoch} step {i}: {e}")
-                    continue
+                    # Total loss function
+                    n_z = self.args.c_out * self.args.d_model
+                    T_dim = int(n_z / self.args.T_num_expert)
+                    F_dim = int(n_z / self.args.F_num_expert)
+                    loss_cluster_time = self.model.model_time.cluster.total_loss(pred=s_time, target=s_tilde_time,
+                                                                       dim=T_dim, n_clusters=self.args.T_num_expert,
+                                                                       beta=self.args.beta)
+                    loss_cluster_frequency = self.model.model_frequency.cluster.total_loss(pred=s_frequency, target=s_tilde_frequency,
+                                                                       dim=F_dim, n_clusters=self.args.F_num_expert,
+                                                                       beta=self.args.beta)
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                    batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+
+                    loss_fore = criterion(outputs, batch_y)
+                    loss = loss_fore + self.args.alpha * loss_cluster_time + self.args.gama * loss_cluster_frequency
+
+                    train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
                     print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
@@ -282,12 +245,20 @@ class Exp_Main(Exp_Basic):
                     iter_count = 0
                     time_now = time.time()
 
+                if self.args.use_amp:
+                    scaler.scale(loss).backward()
+                    scaler.step(model_optim)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    model_optim.step()
+                    
                 if self.args.lradj == 'TST':
                     adjust_learning_rate(model_optim, scheduler, epoch + 1, self.args, printout=False)
                     scheduler.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
-            train_loss = np.average(train_loss) if len(train_loss) > 0 else float('nan')
+            train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
             test_loss = self.vali(test_data, test_loader, criterion)
 

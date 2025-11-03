@@ -26,20 +26,17 @@ export HIP_VISIBLE_DEVICES=$GPU
 # Recommended training config for Solar + PatchTST_MoE_cluster
 BATCH_SIZE=24
 D_MODEL=128
-N_HEADS=4
+N_HEADS=8
 E_LAYERS=3
 D_FF=128
-PATCH_LEN=16
-STRIDE=8
-FC_DROPOUT=0.3
-DROPOUT=0.3
-T_NUM_EXPERT=16
+PATCH_LEN=32
+STRIDE=16
+T_NUM_EXPERT=32
 T_TOP_K=1
-F_NUM_EXPERT=16
+F_NUM_EXPERT=32
 F_TOP_K=1
-LR=0.0005
+LR=0.00001
 TRAIN_EPOCHS=100
-MAX_GRAD_NORM=1.0
 
 for seq_len in 96
 do
@@ -87,15 +84,14 @@ do
       --T_top_k $T_top_k \
       --F_num_expert $F_num_expert \
       --F_top_k $F_top_k \
-      --beta 0.1 \
+      --beta 0.01 \
       --des 'Exp' \
       --train_epochs ${TRAIN_EPOCHS} \
       --devices 0,1,2,3,4,5,6,7 \
       --use_multi_gpu \
       --use_gpu True \
       --gpu 0 \
-      --itr 1 --batch_size ${BATCH_SIZE} --learning_rate ${learning_rate} \
-      --max_grad_norm ${MAX_GRAD_NORM} | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
+      --itr 1 --batch_size ${BATCH_SIZE} --learning_rate ${learning_rate}  | tee logs/LongForecasting/solar/${model_name}_${model_id_name}_${seq_len}_${pred_len}_${T_num_expert}_${T_top_k}_${F_num_expert}_${F_top_k}_${learning_rate}_0.1.log
 
     sleep 2
 
