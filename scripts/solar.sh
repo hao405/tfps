@@ -25,7 +25,7 @@ export HIP_VISIBLE_DEVICES=$GPU
 
 # Recommended training config for Solar + PatchTST_MoE_cluster
 BATCH_SIZE=16
-D_MODEL=32
+D_MODEL=16
 N_HEADS=8
 E_LAYERS=3
 D_FF=64
