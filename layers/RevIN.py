@@ -39,6 +39,9 @@ class RevIN(nn.Module):
         else:
             self.mean = torch.mean(x, dim=dim2reduce, keepdim=True).detach()
         self.stdev = torch.sqrt(torch.var(x, dim=dim2reduce, keepdim=True, unbiased=False) + self.eps).detach()
+        
+        # 防止stdev过小导致数值不稳定
+        self.stdev = torch.clamp(self.stdev, min=self.eps)
 
     def _normalize(self, x):
         if self.subtract_last:
@@ -54,7 +57,9 @@ class RevIN(nn.Module):
     def _denormalize(self, x):
         if self.affine:
             x = x - self.affine_bias
-            x = x / (self.affine_weight + self.eps*self.eps)
+            # 防止除以接近0的值
+            safe_weight = torch.clamp(self.affine_weight.abs(), min=self.eps) * torch.sign(self.affine_weight + self.eps)
+            x = x / safe_weight
         x = x * self.stdev
         if self.subtract_last:
             x = x + self.last

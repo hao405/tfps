@@ -245,8 +245,36 @@ class Exp_Main(Exp_Basic):
                         loss = criterion(outputs, batch_y)
                         train_loss.append(loss.item())
                 else:
+                    # 在第一个iteration添加详细的输入检查
+                    if i == 0 and epoch == 0:
+                        print(f"\n=== First Iteration Debug Info ===")
+                        print(f"batch_x shape: {batch_x.shape}, range: [{batch_x.min().item():.6f}, {batch_x.max().item():.6f}]")
+                        print(f"batch_x contains NaN: {torch.isnan(batch_x).any().item()}")
+                        print(f"batch_x contains Inf: {torch.isinf(batch_x).any().item()}")
+                    
                     if 'Linear' in self.args.model or 'TST' in self.args.model:
                             s_time, s_frequency, outputs = self.model(batch_x)
+                            
+                            # 检查模型输出
+                            if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                                print(f"\nDEBUG: Model output contains NaN/Inf at iteration {i+1}")
+                                print(f"  batch_x stats: min={batch_x.min().item():.6f}, max={batch_x.max().item():.6f}, mean={batch_x.mean().item():.6f}")
+                                print(f"  s_time stats: min={s_time.min().item() if not torch.isnan(s_time).all() else 'all_nan'}, max={s_time.max().item() if not torch.isnan(s_time).all() else 'all_nan'}")
+                                print(f"  s_frequency stats: min={s_frequency.min().item() if not torch.isnan(s_frequency).all() else 'all_nan'}, max={s_frequency.max().item() if not torch.isnan(s_frequency).all() else 'all_nan'}")
+                                
+                                # 检查模型参数
+                                nan_params = []
+                                inf_params = []
+                                for name, param in self.model.named_parameters():
+                                    if torch.isnan(param).any():
+                                        nan_params.append(name)
+                                    if torch.isinf(param).any():
+                                        inf_params.append(name)
+                                
+                                if nan_params:
+                                    print(f"  Parameters with NaN: {nan_params[:5]}")
+                                if inf_params:
+                                    print(f"  Parameters with Inf: {inf_params[:5]}")
                     else:
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
