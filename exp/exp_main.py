@@ -44,7 +44,13 @@ class Exp_Main(Exp_Basic):
         model = model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
+            # Move model to the primary device before DataParallel wrapping
+            primary_device = torch.device(f'cuda:{self.args.device_ids[0]}')
+            model = model.to(primary_device)
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
+        elif self.args.use_gpu:
+            # Single GPU case - move to device
+            model = model.to(self.device)
         return model
 
     def _get_data(self, flag):

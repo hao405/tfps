@@ -7,7 +7,8 @@ class Exp_Basic(object):
     def __init__(self, args):
         self.args = args
         self.device = self._acquire_device()
-        self.model = self._build_model().to(self.device)
+        self.model = self._build_model()
+        # Don't move model to device here if using multi-GPU, as it will be handled in _build_model
 
     def _build_model(self):
         raise NotImplementedError
