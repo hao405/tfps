@@ -461,27 +461,43 @@ class Exp_Main(Exp_Basic):
             inference_time /= total_samples
 
         # result save
-        folder_path = './results/' + setting + '/'
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
+        try:
+            folder_path = os.path.join('./results', setting)
+            os.makedirs(folder_path, exist_ok=True)
 
-        result_file = './result_{}_{}.txt'.format(self.args.data_path.split('.')[0], self.args.seq_len)
+            # 安全处理文件名
+            data_name = self.args.data_path.split('.')[0] if '.' in self.args.data_path else self.args.data_path
+            result_file = os.path.join('.', f'result_{data_name}_{self.args.seq_len}.txt')
 
-        mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
-        print('mse:{}, mae:{}, rse:{}, Average Inference Time:{}, total_params:{}'.format(mse, mae, rse, inference_time, total_params))
-        f = open(result_file, 'a')
-        f.write(setting + "  \n")
-        f.write('mse:{}, mae:{}, rse:{}, Average Inference Time:{}, total_params:{}'.format(mse, mae, rse, inference_time, total_params))
-        f.write('\n')
-        f.write('\n')
-        f.close()
+            mae, mse, rmse, mape, mspe, rse, corr = metric(preds, trues)
+            print('mse:{}, mae:{}, rse:{}, Average Inference Time:{}, total_params:{}'.format(
+                mse, mae, rse, inference_time, total_params))
+            
+            # 使用上下文管理器安全写入文件
+            with open(result_file, 'a', encoding='utf-8') as f:
+                f.write(setting + "  \n")
+                f.write('mse:{}, mae:{}, rse:{}, Average Inference Time:{}, total_params:{}\n'.format(
+                    mse, mae, rse, inference_time, total_params))
+                f.write('\n')
+            print(f'Results saved to {result_file}')
 
-        # np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
-        np.save(folder_path + 'cluster_time_result.npy', clusters_time)
-        np.save(folder_path + 'cluster_frequency_result.npy', clusters_frequency)
-        np.save(folder_path + 'pred.npy', preds)
-        # np.save(folder_path + 'true.npy', trues)
-        # np.save(folder_path + 'x.npy', inputx)
+            # 保存numpy数组,添加异常处理
+            try:
+                # np.save(os.path.join(folder_path, 'metrics.npy'), np.array([mae, mse, rmse, mape, mspe, rse, corr]))
+                np.save(os.path.join(folder_path, 'cluster_time_result.npy'), clusters_time)
+                np.save(os.path.join(folder_path, 'cluster_frequency_result.npy'), clusters_frequency)
+                np.save(os.path.join(folder_path, 'pred.npy'), preds)
+                # np.save(os.path.join(folder_path, 'true.npy'), trues)
+                # np.save(os.path.join(folder_path, 'x.npy'), inputx)
+                print(f'Numpy arrays saved to {folder_path}')
+            except Exception as e:
+                print(f'Warning: Failed to save numpy arrays: {str(e)}')
+                
+        except Exception as e:
+            print(f'Error saving results: {str(e)}')
+            import traceback
+            traceback.print_exc()
+        
         return
 
     def predict(self, setting, load=False):
