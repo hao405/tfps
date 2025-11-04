@@ -24,7 +24,7 @@ export HIP_VISIBLE_DEVICES=$GPU
 # random_seed=2023
 
 # Optimized training config for Solar + PatchTST_MoE_cluster (Faster!)
-BATCH_SIZE=32          # 增加batch size (24→32) 提高GPU利用率
+BATCH_SIZE=96          # 增加batch size (24→32) 提高GPU利用率
 D_MODEL=8              # 大幅减小d_model (16→8) 减少参数量
 N_HEADS=4              # 减少注意力头 (8→4) 
 E_LAYERS=2             # 减少层数 (3→2) 加速训练
@@ -42,7 +42,7 @@ FC_DROPOUT=0.1
 
 for seq_len in 96
 do
-for pred_len in 96 192 336 720
+for pred_len in 336 720
 do
 for random_seed in 2023
 do
